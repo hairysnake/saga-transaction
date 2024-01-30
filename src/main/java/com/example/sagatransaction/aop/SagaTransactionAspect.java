@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Stack;
 
 @Aspect
 @Slf4j
@@ -35,11 +36,12 @@ public class SagaTransactionAspect {
     @AfterReturning(pointcut = "sagaMethodPointcut()", returning = "result")
     public void afterReturningFromSagaMethod(JoinPoint joinPoint, Object result) {
         MethodSignature methodSignature = ((MethodSignature) joinPoint.getSignature());
+        Class<?> returnType = methodSignature.getReturnType();
         Class<?> clazz = methodSignature.getMethod().getDeclaringClass();
         String rollbackMethodName = methodSignature.getMethod().getAnnotation(SagaMethod.class).rollbackMethod();
 
         sagaContextHolder.get().getExecutionStack()
-                .push(new SagaRollbackMethod(clazz, rollbackMethodName, result));
+                .push(new SagaRollbackMethod(clazz, rollbackMethodName, returnType, result));
     }
 
     @After("sagaTransactionPointcut()")
@@ -52,18 +54,20 @@ public class SagaTransactionAspect {
         log.info("This is method run after throwing");
 
         try {
-            for (SagaRollbackMethod sagaRollbackMethod : sagaContextHolder.get().getExecutionStack()) {
-                executeRollbackSageMethod(sagaRollbackMethod);
+            Stack<SagaRollbackMethod> stack = sagaContextHolder.get().getExecutionStack();
+            while(!stack.empty()) {
+                executeRollbackSageMethod(stack.pop());
             }
         } catch (Throwable e) {
-            log.error("error ", e);
+            log.error("Here one should persist information about unsuccessful transaction rollback ", e);
         }
     }
 
     private void executeRollbackSageMethod(SagaRollbackMethod sagaRollbackMethod) throws NoSuchMethodException
             , InvocationTargetException, IllegalAccessException {
-        Method rollbackMethod = sagaRollbackMethod.clazz().getMethod(sagaRollbackMethod.methodName());
+        Method rollbackMethod = sagaRollbackMethod.clazz().getMethod(sagaRollbackMethod.methodName()
+                , sagaRollbackMethod.returnType());
         Object bean = applicationContext.getBean(sagaRollbackMethod.clazz());
-        rollbackMethod.invoke(bean);
+        rollbackMethod.invoke(bean, sagaRollbackMethod.value());
     }
 }

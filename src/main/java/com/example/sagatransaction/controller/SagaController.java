@@ -13,7 +13,7 @@ public class SagaController {
 
     @GetMapping("/")
     public void runSagaTransaction() {
-        new Thread(() -> createPolicyAction.createPolicy("some string 1")).start();
-        new Thread(() -> createPolicyAction.createPolicy("some string 2")).start();
+        new Thread(createPolicyAction::createPolicy).start();
+        new Thread(createPolicyAction::createPolicy).start();
     }
 }
